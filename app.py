@@ -988,8 +988,9 @@ def ask_agent(
                             "x_label": {"type": "string"},
                             "y_label": {"type": "string"},
                             "title": {"type": "string"},
+                            "slide": {"type": "integer", "minimum": 1},
                         },
-                        "required": ["requested", "type", "functions", "domain", "points", "shade_between", "x_label", "y_label", "title"],
+                        "required": ["requested", "type", "functions", "domain", "points", "shade_between", "x_label", "y_label", "title", "slide"],
                         "additionalProperties": False,
                     },
                 },
@@ -1124,7 +1125,7 @@ def update_chat_context(
         return context
 
 
-def edit_powerpoint(prompt: str, pptx_path: Path, state: dict) -> dict | None:
+def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list[dict] | None = None) -> dict | None:
     """Use the model to create a conservative text-replacement plan for a PPTX."""
     api_key = secret_value("OPENAI_API_KEY")
     if not api_key:
@@ -1185,7 +1186,8 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict) -> dict | None:
             )
         plan = json.loads(response.output_text)
         operations = plan.get("operations", [])
-        if not operations:
+        requested_graphs = [item for item in (graph_specs or []) if isinstance(item, dict) and item.get("requested")]
+        if not operations and not requested_graphs:
             (DATA_ROOT / "pptx_error.log").write_text(
                 "De AI gaf een leeg bewerkingsplan terug.\n\n" + response.output_text,
                 encoding="utf-8",
@@ -1243,6 +1245,24 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict) -> dict | None:
                 if not shape_changed and find_text in shape.text:
                     shape.text = shape.text.replace(find_text, replace_text)
                     applied += 1
+        # Render each requested graph separately so an invalid graph does not
+        # shift the slide assignment of the graphs that follow it.
+        for graph_spec in requested_graphs:
+            rendered = render_function_graphs([graph_spec])
+            if not rendered:
+                continue
+            graph_path = rendered[0]
+            slide_number = int(graph_spec.get("slide", 1) or 1)
+            if not (1 <= slide_number <= len(presentation.slides)):
+                graph_path.unlink(missing_ok=True)
+                continue
+            slide = presentation.slides[slide_number - 1]
+            slide_width_in = presentation.slide_width / Inches(1)
+            graph_width_in = min(5.6, max(3.5, slide_width_in - 1.0))
+            graph_x_in = max(0.4, slide_width_in - graph_width_in - 0.4)
+            slide.shapes.add_picture(str(graph_path), Inches(graph_x_in), Inches(1.35), width=Inches(graph_width_in))
+            applied += 1
+            graph_path.unlink(missing_ok=True)
         if not applied:
             (DATA_ROOT / "pptx_error.log").write_text(
                 "Het bewerkingsplan bevatte geen toepasbare wijzigingen.\n\n" + json.dumps(plan, ensure_ascii=False, indent=2),
@@ -1937,7 +1957,7 @@ else:
         for attached_path in ([] if hard_stop or request_failed else pptx_candidates):
             if attached_path.suffix.lower() == ".pptx":
                 with st.spinner("De AI maakt een aangepaste PowerPoint..."):
-                    generated_file = edit_powerpoint(prompt, attached_path, state)
+                    generated_file = edit_powerpoint(prompt, attached_path, state, graph_payload)
                 if generated_file:
                     answer += f"\n\nIk heb een aangepaste PowerPoint gemaakt: **{generated_file['name']}**. Je kunt deze downloaden via Bestanden."
                 elif should_edit_powerpoint:
