@@ -89,6 +89,7 @@ def download_remote_files(state: dict, client) -> None:
 
 def upload_state_files(state: dict, client) -> None:
     """Mirror current local files to the private Supabase bucket."""
+    global SUPABASE_ERROR
     if not client:
         return
     for file_info in state.get("files", []):
@@ -113,7 +114,7 @@ def upload_state_files(state: dict, client) -> None:
             file_info["remote_path"] = storage_path
             file_info["remote_size"] = local_size
             file_info["remote_modified"] = local_modified
-        except Exception:
+        except Exception as upload_exc:
             try:
                 client.storage.from_(SUPABASE_BUCKET).update(
                     path=storage_path,
@@ -123,7 +124,15 @@ def upload_state_files(state: dict, client) -> None:
                 file_info["remote_path"] = storage_path
                 file_info["remote_size"] = local_size
                 file_info["remote_modified"] = local_modified
-            except Exception:
+            except Exception as update_exc:
+                SUPABASE_ERROR = f"Bestand '{local_path.name}' kon niet naar Supabase worden geüpload ({type(update_exc).__name__})."
+                try:
+                    (DATA_ROOT / "supabase_error.log").write_text(
+                        f"Uploadfout:\n{upload_exc}\n\nUpdatefout:\n{traceback.format_exc()}",
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
                 continue
 
 
