@@ -1327,11 +1327,13 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
                 categories = [str(value) for value in (graph_spec.get("categories") or [])]
                 chart_data = CategoryChartData()
                 chart_data.categories = categories
+                added_series = 0
                 for item in (graph_spec.get("series") or [])[:6]:
                     values = item.get("values") if isinstance(item, dict) else None
                     if isinstance(values, list) and len(values) == len(categories):
                         chart_data.add_series(str(item.get("label", "Reeks")), [float(value) for value in values])
-                if not categories or not chart_data.series:
+                        added_series += 1
+                if not categories or not added_series:
                     del presentation.slides._sldIdLst[-1]
                     continue
                 chart_shape = graph_slide.shapes.add_chart(
@@ -1339,7 +1341,7 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
                     Inches(graph_x_in), Inches(graph_y_in), Inches(graph_width_in), Inches(5.5), chart_data
                 )
                 chart = chart_shape.chart
-                chart.has_legend = len(chart_data.series) > 1
+                chart.has_legend = added_series > 1
                 chart.value_axis.has_major_gridlines = True
                 chart.value_axis.axis_title.text_frame.text = str(graph_spec.get("y_label", "Waarde"))
                 for series, item in zip(chart.series, (graph_spec.get("series") or [])[:6]):
