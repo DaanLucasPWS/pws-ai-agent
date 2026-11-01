@@ -520,6 +520,46 @@ def render_function_graphs(graph_specs: list[dict] | None) -> list[Path]:
         if not isinstance(functions, list) or not functions or not isinstance(domain, dict):
             continue
         try:
+            if spec.get("type") == "bar_chart":
+                categories = [str(value) for value in (spec.get("categories") or [])]
+                series = spec.get("series") or []
+                if not categories or not isinstance(series, list) or not series or len(categories) > 24:
+                    continue
+                valid_series = []
+                for item in series[:6]:
+                    values = item.get("values") if isinstance(item, dict) else None
+                    if not isinstance(values, list) or len(values) != len(categories):
+                        continue
+                    numeric_values = [float(value) for value in values]
+                    color = str(item.get("color", "#4472C4"))
+                    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+                        color = "#4472C4"
+                    valid_series.append((str(item.get("label", "Reeks")), numeric_values, color))
+                if not valid_series:
+                    continue
+                figure, axis = plt.subplots(figsize=(8.8, 4.8), dpi=150)
+                positions = np.arange(len(categories), dtype=float)
+                bar_width = min(0.8 / len(valid_series), 0.28)
+                for series_index, (label, values, color) in enumerate(valid_series):
+                    offset = (series_index - (len(valid_series) - 1) / 2) * bar_width
+                    bars = axis.bar(positions + offset, values, bar_width, label=label, color=color)
+                    for bar, value in zip(bars, values):
+                        axis.annotate(f"{value:g}", (bar.get_x() + bar.get_width() / 2, value),
+                                      xytext=(0, 3 if value >= 0 else -11), textcoords="offset points",
+                                      ha="center", va="bottom" if value >= 0 else "top", fontsize=7)
+                axis.set_xticks(positions, categories)
+                axis.axhline(0, color="#667085", linewidth=0.8)
+                axis.grid(True, axis="y", alpha=0.25)
+                axis.set_ylabel(str(spec.get("y_label", "Waarde")))
+                if spec.get("title"):
+                    axis.set_title(str(spec["title"]))
+                axis.legend()
+                figure.tight_layout()
+                output_path = Path(tempfile.gettempdir()) / f"lesmaat_graph_{uuid.uuid4().hex}_{index}.png"
+                figure.savefig(output_path, bbox_inches="tight")
+                plt.close(figure)
+                rendered.append(output_path)
+                continue
             x_min = float(domain.get("min"))
             x_max = float(domain.get("max"))
             if not x_max > x_min or x_max - x_min > 10000:
@@ -967,7 +1007,7 @@ def ask_agent(
                         "type": "object",
                         "properties": {
                             "requested": {"type": "boolean"},
-                            "type": {"type": "string", "enum": ["function_plot"]},
+                            "type": {"type": "string", "enum": ["function_plot", "bar_chart"]},
                             "functions": {
                                 "type": "array",
                                 "items": {
@@ -989,8 +1029,22 @@ def ask_agent(
                             "y_label": {"type": "string"},
                             "title": {"type": "string"},
                             "slide": {"type": "integer", "minimum": 1},
+                            "categories": {"type": "array", "items": {"type": "string"}},
+                            "series": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {"type": "string"},
+                                        "values": {"type": "array", "items": {"type": "number"}},
+                                        "color": {"type": "string"},
+                                    },
+                                    "required": ["label", "values", "color"],
+                                    "additionalProperties": False,
+                                },
+                            },
                         },
-                        "required": ["requested", "type", "functions", "domain", "points", "shade_between", "x_label", "y_label", "title", "slide"],
+                        "required": ["requested", "type", "functions", "domain", "points", "shade_between", "x_label", "y_label", "title", "slide", "categories", "series"],
                         "additionalProperties": False,
                     },
                 },
