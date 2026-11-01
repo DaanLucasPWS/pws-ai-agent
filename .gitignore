@@ -1,0 +1,5 @@
+users.local.json
+__pycache__/
+app_data/
+.env
+*.log
