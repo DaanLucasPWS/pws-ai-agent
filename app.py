@@ -1167,6 +1167,9 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
             "Voer concrete tekstwijzigingen uit met action replace_text en gebruik dan de exacte bestaande tekst in find. "
             "Gebruik action add_slide wanneer de gebruiker om een nieuwe dia vraagt. "
             "Zet bij add_slide de gewenste positie in after_slide, plus een duidelijke title en body. "
+            "Kopieer de gebruikersopdracht nooit letterlijk naar title of body. "
+            "Houd title kort en body beperkt tot maximaal vijf korte regels met alleen de inhoud die op de dia hoort. "
+            "Als de gebruiker alleen om een grafiek vraagt, laat operations leeg; de app maakt daarvoor zelf een aparte grafiekdia. "
             "Gebruik lege strings voor velden die bij de gekozen actie niet nodig zijn. "
             f"\n\nGEBRUIKERSOPDRACHT:\n{prompt}\n\nPOWERPOINT:\n{slide_text[:100000]}"
         )
@@ -1252,15 +1255,32 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
             if not rendered:
                 continue
             graph_path = rendered[0]
-            slide_number = int(graph_spec.get("slide", 1) or 1)
-            if not (1 <= slide_number <= len(presentation.slides)):
+            reference_slide_number = int(graph_spec.get("slide", 1) or 1)
+            if not (1 <= reference_slide_number <= len(presentation.slides)):
                 graph_path.unlink(missing_ok=True)
                 continue
-            slide = presentation.slides[slide_number - 1]
+            reference_slide = presentation.slides[reference_slide_number - 1]
+            graph_slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            title_box = graph_slide.shapes.add_textbox(Inches(0.6), Inches(0.35), Inches(12.1), Inches(0.65))
+            title_text = str(graph_spec.get("title") or "Grafiek").strip() or "Grafiek"
+            set_pptx_markdown_text(title_box.text_frame, title_text, Pt(26))
+            for paragraph in title_box.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    run.font.bold = True
             slide_width_in = presentation.slide_width / Inches(1)
-            graph_width_in = min(5.6, max(3.5, slide_width_in - 1.0))
-            graph_x_in = max(0.4, slide_width_in - graph_width_in - 0.4)
-            slide.shapes.add_picture(str(graph_path), Inches(graph_x_in), Inches(1.35), width=Inches(graph_width_in))
+            graph_width_in = min(10.2, slide_width_in - 1.0)
+            graph_x_in = max(0.5, (slide_width_in - graph_width_in) / 2)
+            graph_y_in = 1.15
+            graph_slide.shapes.add_picture(str(graph_path), Inches(graph_x_in), Inches(graph_y_in), width=Inches(graph_width_in))
+            # Put the new graph slide directly after its reference slide.
+            new_slide_id = presentation.slides._sldIdLst[-1]
+            presentation.slides._sldIdLst.remove(new_slide_id)
+            reference_slide_id = reference_slide.slide_id
+            reference_index = next(
+                index for index, slide_id in enumerate(presentation.slides._sldIdLst)
+                if int(slide_id.id) == int(reference_slide_id)
+            )
+            presentation.slides._sldIdLst.insert(reference_index + 1, new_slide_id)
             applied += 1
             graph_path.unlink(missing_ok=True)
         if not applied:

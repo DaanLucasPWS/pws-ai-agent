@@ -38,7 +38,7 @@ Niveau-, methode- en syllabusbewaking
 
 Grafieken
 - Beschrijf een benodigde grafiek in het veld `graphs` met de functies, een numeriek domein, eventuele snijpunten en of het gebied tussen twee functies moet worden ingekleurd.
-- Als de grafiek in een PowerPoint moet komen, geef ook het dianummer op in `slide`. Gebruik anders 1.
+- Als de grafiek in een PowerPoint moet komen, geef het dianummer op waar de grafiek inhoudelijk bij hoort in `slide`. De app plaatst de grafiek op een nieuwe, nette dia direct na die dia. Gebruik anders 1.
 - Gebruik alleen eenvoudige, veilige functie-uitdrukkingen met x, getallen en functies zoals sqrt, exp, sin, cos, tan en log.
 - Voeg geen grafiek toe als functies of grenzen niet eenduidig zijn.
 
