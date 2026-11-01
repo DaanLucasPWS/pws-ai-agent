@@ -127,6 +127,21 @@ def upload_state_files(state: dict, client) -> None:
                 continue
 
 
+def delete_remote_file(file_info: dict, storage_path: str | None = None) -> None:
+    """Remove an obsolete object from the user's private Supabase folder."""
+    client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
+    if not client:
+        return
+    path = storage_path or file_info.get("remote_path") or remote_file_path(file_info)
+    try:
+        client.storage.from_(SUPABASE_BUCKET).remove([path])
+    except Exception:
+        try:
+            (DATA_ROOT / "supabase_error.log").write_text(traceback.format_exc(), encoding="utf-8")
+        except OSError:
+            pass
+
+
 def configured_users() -> dict:
     """Read hashed user records from an environment secret.
 
@@ -1567,6 +1582,9 @@ elif page == "files":
                                 if candidate.get("parent") in to_remove and candidate["id"] not in to_remove:
                                     to_remove.add(candidate["id"])
                                     changed = True
+                        removed_files = [f for f in state["files"] if f.get("folder") in to_remove]
+                        for removed_file in removed_files:
+                            delete_remote_file(removed_file)
                         state["files"] = [f for f in state["files"] if f.get("folder") not in to_remove]
                         state["folders"] = [f for f in state["folders"] if f.get("id") not in to_remove]
                         save_state(state)
@@ -1586,6 +1604,7 @@ elif page == "files":
                 new_name = st.text_input("Nieuwe bestandsnaam en druk Enter", value=file_info["name"], key=f"file_name_{file_info['id']}", label_visibility="collapsed")
                 if new_name.strip() and new_name.strip() != file_info["name"]:
                     safe = clean_name(new_name)
+                    old_remote_path = file_info.get("remote_path") or remote_file_path(file_info)
                     old_path = resolve_file_path(file_info)
                     if old_path:
                         new_path = old_path.with_name(safe)
@@ -1595,6 +1614,10 @@ elif page == "files":
                         new_path = FILES_ROOT / file_info.get("folder", "root") / safe
                     file_info["name"] = safe
                     file_info["path"] = str(new_path)
+                    file_info.pop("remote_path", None)
+                    file_info.pop("remote_size", None)
+                    file_info.pop("remote_modified", None)
+                    delete_remote_file(file_info, old_remote_path)
                     save_state(state)
                     st.session_state.pop(f"rename_file_{file_info['id']}", None)
                     st.rerun()
@@ -1680,6 +1703,7 @@ elif page == "files":
                     destination = st.selectbox("Verplaatsen naar", list(other_folders), key=f"move_to_{file_info['id']}")
                     if st.button("Verplaatsen", key=f"move_file_{file_info['id']}", use_container_width=True):
                         target_folder = other_folders[destination]
+                        old_remote_path = file_info.get("remote_path") or remote_file_path(file_info)
                         old_path = resolve_file_path(file_info)
                         target_dir = FILES_ROOT / target_folder
                         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1688,6 +1712,10 @@ elif page == "files":
                             old_path.rename(new_path)
                         file_info["folder"] = target_folder
                         file_info["path"] = str(new_path)
+                        file_info.pop("remote_path", None)
+                        file_info.pop("remote_size", None)
+                        file_info.pop("remote_modified", None)
+                        delete_remote_file(file_info, old_remote_path)
                         save_state(state)
                         st.rerun()
                 if st.button("🗑  Bestand verwijderen", key=f"delete_file_{file_info['id']}", use_container_width=True):
@@ -1698,6 +1726,7 @@ elif page == "files":
             confirm_col, cancel_col = st.columns(2)
             with confirm_col:
                 if st.button("Ja, verwijderen", key=f"yes_delete_file_{file_info['id']}"):
+                    delete_remote_file(file_info)
                     path = resolve_file_path(file_info)
                     if path:
                         path.unlink()
