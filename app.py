@@ -1252,6 +1252,9 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
             return None
 
         from pptx import Presentation
+        from pptx.chart.data import CategoryChartData
+        from pptx.enum.chart import XL_CHART_TYPE
+        from pptx.dml.color import RGBColor
         from pptx.util import Inches, Pt
 
         readable_path, temporary_path = powerpoint_snapshot(pptx_path)
@@ -1305,13 +1308,8 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
         # Render each requested graph separately so an invalid graph does not
         # shift the slide assignment of the graphs that follow it.
         for graph_spec in requested_graphs:
-            rendered = render_function_graphs([graph_spec])
-            if not rendered:
-                continue
-            graph_path = rendered[0]
             reference_slide_number = int(graph_spec.get("slide", 1) or 1)
             if not (1 <= reference_slide_number <= len(presentation.slides)):
-                graph_path.unlink(missing_ok=True)
                 continue
             reference_slide = presentation.slides[reference_slide_number - 1]
             graph_slide = presentation.slides.add_slide(presentation.slide_layouts[6])
@@ -1325,7 +1323,39 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
             graph_width_in = min(10.2, slide_width_in - 1.0)
             graph_x_in = max(0.5, (slide_width_in - graph_width_in) / 2)
             graph_y_in = 1.15
-            graph_slide.shapes.add_picture(str(graph_path), Inches(graph_x_in), Inches(graph_y_in), width=Inches(graph_width_in))
+            if graph_spec.get("type") == "bar_chart":
+                categories = [str(value) for value in (graph_spec.get("categories") or [])]
+                chart_data = CategoryChartData()
+                chart_data.categories = categories
+                for item in (graph_spec.get("series") or [])[:6]:
+                    values = item.get("values") if isinstance(item, dict) else None
+                    if isinstance(values, list) and len(values) == len(categories):
+                        chart_data.add_series(str(item.get("label", "Reeks")), [float(value) for value in values])
+                if not categories or not chart_data.series:
+                    del presentation.slides._sldIdLst[-1]
+                    continue
+                chart_shape = graph_slide.shapes.add_chart(
+                    XL_CHART_TYPE.COLUMN_CLUSTERED,
+                    Inches(graph_x_in), Inches(graph_y_in), Inches(graph_width_in), Inches(5.5), chart_data
+                )
+                chart = chart_shape.chart
+                chart.has_legend = len(chart_data.series) > 1
+                chart.value_axis.has_major_gridlines = True
+                chart.value_axis.axis_title.text_frame.text = str(graph_spec.get("y_label", "Waarde"))
+                for series, item in zip(chart.series, (graph_spec.get("series") or [])[:6]):
+                    color = str(item.get("color", "#4472C4")) if isinstance(item, dict) else "#4472C4"
+                    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+                        color = "#4472C4"
+                    series.format.fill.solid()
+                    series.format.fill.fore_color.rgb = RGBColor.from_string(color[1:].upper())
+                graph_path = None
+            else:
+                rendered = render_function_graphs([graph_spec])
+                if not rendered:
+                    del presentation.slides._sldIdLst[-1]
+                    continue
+                graph_path = rendered[0]
+                graph_slide.shapes.add_picture(str(graph_path), Inches(graph_x_in), Inches(graph_y_in), width=Inches(graph_width_in))
             # Put the new graph slide directly after its reference slide.
             new_slide_id = presentation.slides._sldIdLst[-1]
             presentation.slides._sldIdLst.remove(new_slide_id)
@@ -1336,7 +1366,8 @@ def edit_powerpoint(prompt: str, pptx_path: Path, state: dict, graph_specs: list
             )
             presentation.slides._sldIdLst.insert(reference_index + 1, new_slide_id)
             applied += 1
-            graph_path.unlink(missing_ok=True)
+            if graph_path:
+                graph_path.unlink(missing_ok=True)
         if not applied:
             (DATA_ROOT / "pptx_error.log").write_text(
                 "Het bewerkingsplan bevatte geen toepasbare wijzigingen.\n\n" + json.dumps(plan, ensure_ascii=False, indent=2),
