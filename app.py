@@ -1608,7 +1608,19 @@ elif page == "files":
                     help="Open dit bestand",
                 ):
                     resolved_path = resolve_file_path(file_info)
-                    if resolved_path and open_external(str(resolved_path)):
+                    if resolved_path and current_user_id != "local_dev":
+                        try:
+                            st.download_button(
+                                "⇩ Downloaden",
+                                data=resolved_path.read_bytes(),
+                                file_name=file_info["name"],
+                                mime=file_mime_type(resolved_path),
+                                key=f"open_download_file_{file_info['id']}",
+                                use_container_width=True,
+                            )
+                        except OSError:
+                            st.error("Download tijdelijk niet beschikbaar; probeer opnieuw.")
+                    elif resolved_path and open_external(str(resolved_path)):
                         if str(resolved_path) != file_info.get("path"):
                             file_info["path"] = str(resolved_path)
                             save_state(state)
@@ -1621,7 +1633,19 @@ elif page == "files":
             with st.popover("⋯", use_container_width=True):
                 if st.button("↗  Openen", key=f"open_file_{file_info['id']}", use_container_width=True):
                     resolved_path = resolve_file_path(file_info)
-                    if resolved_path and open_external(str(resolved_path)):
+                    if resolved_path and current_user_id != "local_dev":
+                        try:
+                            st.download_button(
+                                "⇩  Downloaden",
+                                data=resolved_path.read_bytes(),
+                                file_name=file_info["name"],
+                                mime=file_mime_type(resolved_path),
+                                key=f"menu_open_download_{file_info['id']}",
+                                use_container_width=True,
+                            )
+                        except OSError:
+                            st.error("Download tijdelijk niet beschikbaar; probeer opnieuw.")
+                    elif resolved_path and open_external(str(resolved_path)):
                         # Keep the metadata correct if the app was moved or the
                         # file was found in a different local folder.
                         if str(resolved_path) != file_info.get("path"):
