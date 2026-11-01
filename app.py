@@ -42,6 +42,13 @@ def secret_value(name: str) -> str:
         return ""
 
 
+@st.cache_resource(show_spinner=False)
+def _cached_supabase_client(url: str, key: str):
+    from supabase import create_client
+
+    return create_client(url, key)
+
+
 def supabase_client():
     """Create the server-only Supabase client when hosting secrets exist."""
     url = secret_value("SUPABASE_URL")
@@ -49,9 +56,7 @@ def supabase_client():
     if not url or not key:
         return None
     try:
-        from supabase import create_client
-
-        return create_client(url, key)
+        return _cached_supabase_client(url, key)
     except Exception:
         return None
 
@@ -76,6 +81,8 @@ def download_remote_files(state: dict, client) -> None:
                 local_path.write_bytes(content)
             file_info["path"] = str(local_path)
             file_info["remote_path"] = storage_path
+            file_info["remote_size"] = local_path.stat().st_size
+            file_info["remote_modified"] = local_path.stat().st_mtime
         except Exception:
             continue
 
@@ -88,6 +95,14 @@ def upload_state_files(state: dict, client) -> None:
         local_path = resolve_file_path(file_info)
         if not local_path:
             continue
+        local_size = local_path.stat().st_size
+        local_modified = local_path.stat().st_mtime
+        if (
+            file_info.get("remote_path")
+            and file_info.get("remote_size") == local_size
+            and file_info.get("remote_modified") == local_modified
+        ):
+            continue
         storage_path = file_info.get("remote_path") or remote_file_path(file_info)
         try:
             client.storage.from_(SUPABASE_BUCKET).upload(
@@ -96,6 +111,8 @@ def upload_state_files(state: dict, client) -> None:
                 file_options={"cache-control": "3600", "upsert": "true", "content-type": file_mime_type(local_path)},
             )
             file_info["remote_path"] = storage_path
+            file_info["remote_size"] = local_size
+            file_info["remote_modified"] = local_modified
         except Exception:
             try:
                 client.storage.from_(SUPABASE_BUCKET).update(
@@ -104,6 +121,8 @@ def upload_state_files(state: dict, client) -> None:
                     file_options={"cache-control": "3600", "content-type": file_mime_type(local_path)},
                 )
                 file_info["remote_path"] = storage_path
+                file_info["remote_size"] = local_size
+                file_info["remote_modified"] = local_modified
             except Exception:
                 continue
 
@@ -1197,13 +1216,15 @@ def load_state() -> dict:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
     client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
-    if client:
+    remote_loaded = st.session_state.get("remote_state_initialized", False)
+    if client and not remote_loaded:
         try:
             response = client.table("user_states").select("state").eq("user_id", current_user_id).limit(1).execute()
             rows = getattr(response, "data", None) or []
             if rows and isinstance(rows[0].get("state"), dict):
                 STATE_FILE.write_text(json.dumps(rows[0]["state"], ensure_ascii=False, indent=2), encoding="utf-8")
                 download_remote_files(rows[0]["state"], client)
+            st.session_state["remote_state_initialized"] = True
         except Exception as exc:
             SUPABASE_ERROR = f"Supabase-opslag kon niet worden geladen ({type(exc).__name__})."
             try:
@@ -1213,15 +1234,23 @@ def load_state() -> dict:
     if STATE_FILE.exists():
         try:
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            changed = False
             # Remove the old starter folders, but keep all folders the user made.
             old_starter_ids = {"presentaties", "lesmateriaal"}
-            state["folders"] = [f for f in state.get("folders", []) if f.get("id") not in old_starter_ids]
+            filtered_folders = [f for f in state.get("folders", []) if f.get("id") not in old_starter_ids]
+            if filtered_folders != state.get("folders", []):
+                changed = True
+            state["folders"] = filtered_folders
             if not any(f.get("id") == "root" for f in state["folders"]):
                 state["folders"].insert(0, {"id": "root", "name": "Mijn bestanden", "parent": None})
+                changed = True
             state.setdefault("settings", default_state()["settings"])
             for chat in state.get("chats", []):
-                chat.setdefault("context", {})
-            save_state(state)
+                if "context" not in chat:
+                    chat["context"] = {}
+                    changed = True
+            if changed:
+                save_state(state)
             return state
         except (json.JSONDecodeError, OSError):
             pass
@@ -1344,6 +1373,7 @@ with st.sidebar:
         st.caption(f"Ingelogd als {current_user_id}")
         if st.button("Uitloggen", use_container_width=True):
             st.session_state.pop("authenticated_user", None)
+            st.session_state.pop("remote_state_initialized", None)
             st.rerun()
     if st.button("＋ Nieuwe chat", use_container_width=True, type="primary"):
         empty_chat = next((c for c in state["chats"] if c.get("title") == "Nieuwe chat" and not c.get("messages")), None)
