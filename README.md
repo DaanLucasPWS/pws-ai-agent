@@ -1,4 +1,4 @@
-# Lesmaat AI prototype
+# SocrAItes prototype
 
 Lokale Streamlit-interface voor de PWS-agent. Dit is de versie die we voor het PWS gebruiken. Alle programmeerbestanden staan in deze map (`AI-agent code`).
 

@@ -169,7 +169,7 @@ def authenticate_user() -> str | None:
         return "local_dev"
     if st.session_state.get("authenticated_user") in users:
         return st.session_state["authenticated_user"]
-    st.markdown('<div class="hero"><h1>Inloggen bij Lesmaat AI</h1><p>Gebruik je persoonlijke docentaccount.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><h1>Inloggen bij SocrAItes</h1><p>Gebruik je persoonlijke docentaccount.</p></div>', unsafe_allow_html=True)
     with st.form("login_form"):
         username = st.text_input("Gebruikersnaam")
         password = st.text_input("Wachtwoord", type="password")
@@ -770,7 +770,7 @@ def ask_agent(
     """Ask once for both the visible answer and the updated chat context."""
     api_key = secret_value("OPENAI_API_KEY")
     if not api_key:
-        return {"answer": "De API-key is niet gevonden. Stel OPENAI_API_KEY in en start de app opnieuw.", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
+        return {"answer": "De API-key is niet gevonden. Stel OPENAI_API_KEY in en start de app opnieuw.", "chat_title": "", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
     try:
         from openai import OpenAI
 
@@ -816,7 +816,7 @@ def ask_agent(
             "Bepaal daarnaast de uit te voeren actie op basis van de volledige context: answer_only, create_document of edit_powerpoint. "
             "Gebruik edit_powerpoint uitsluitend als de nieuwste gebruikersvraag expliciet om een PowerPoint-bewerking vraagt; oude context of een aanwezig PowerPoint-bestand is daarvoor nooit voldoende. "
             "Geef bij edit_powerpoint alleen het exacte relevante doelbestand terug. Gebruik bij create_document het juiste output_type en laat Python die actie uitvoeren. Gebruik geen aannames buiten de context.\n\n"
-            "Kies in dezelfde respons de rollen die werkelijk nodig zijn, in de juiste volgorde. Gebruik alleen deze rolbenamingen: Bestandenlezer, Actualiteitzoeker, Opdrachtmaker, Documentmaker, PowerPoint-bewerker en Lesvoorbereider. Neem een rol alleen op als die voor deze vraag nodig is.\n\n"
+            "Kies in dezelfde respons de rollen die werkelijk nodig zijn, in de juiste volgorde. Gebruik alleen deze rolbenamingen: Bestandenlezer, Actualiteitzoeker, Opdrachtmaker, Documentmaker, PowerPoint-bewerker en Lesvoorbereider. Neem een rol alleen op als die voor deze vraag nodig is. Geef ook een korte logische chat_title van maximaal vijf woorden, zonder aanhalingstekens of punt aan het einde.\n\n"
             "Controleer vóór documentgeneratie het niveau, de methode en de syllabus. Geef in validation status approved, blocked of needs_information. Gebruik blocked als de opdracht buiten de lesstof valt en needs_information als controle niet mogelijk is.\n\n"
             f"DOCENTPROFIEL:\n{profile_text}\n\n"
             f"VASTGELEGDE CHATCONTEXT:\n{json.dumps(chat_context or {}, ensure_ascii=False, indent=2)}\n\n"
@@ -841,6 +841,7 @@ def ask_agent(
             "type": "object",
             "properties": {
                 "answer": {"type": "string"},
+                "chat_title": {"type": "string"},
                 "context": context_schema,
                 "document": {
                     "type": "object",
@@ -918,7 +919,7 @@ def ask_agent(
                     },
                 },
             },
-            "required": ["answer", "context", "document", "action", "roles", "validation", "graphs"],
+            "required": ["answer", "chat_title", "context", "document", "action", "roles", "validation", "graphs"],
             "additionalProperties": False,
         }
         request = {
@@ -964,6 +965,7 @@ def ask_agent(
         if isinstance(structured, dict) and isinstance(structured.get("answer"), str):
             return {
                 "answer": structured["answer"].strip(),
+                "chat_title": structured.get("chat_title", "").strip(),
                 "context": structured.get("context"),
                 "document": structured.get("document"),
                 "action": structured.get("action"),
@@ -971,7 +973,7 @@ def ask_agent(
                 "validation": structured.get("validation"),
                 "graphs": structured.get("graphs"),
             }
-        return {"answer": output_text or "De AI gaf geen tekstueel antwoord terug.", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
+        return {"answer": output_text or "De AI gaf geen tekstueel antwoord terug.", "chat_title": "", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
     except Exception as exc:
         try:
             (DATA_ROOT / "ai_error.log").write_text(traceback.format_exc(), encoding="utf-8")
@@ -979,8 +981,8 @@ def ask_agent(
             pass
         if type(exc).__name__ == "AuthenticationError":
             detail = str(exc).strip()
-            return {"answer": f"De API-authenticatie is mislukt: {detail} Maak een nieuwe API-key aan en start de app opnieuw.", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
-        return {"answer": f"De AI-aanvraag is mislukt ({type(exc).__name__}). Controleer je API-key, saldo en internetverbinding.", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
+            return {"answer": f"De API-authenticatie is mislukt: {detail} Maak een nieuwe API-key aan en start de app opnieuw.", "chat_title": "", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
+        return {"answer": f"De AI-aanvraag is mislukt ({type(exc).__name__}). Controleer je API-key, saldo en internetverbinding.", "chat_title": "", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
 
 
 def update_chat_context(
@@ -1316,7 +1318,7 @@ def settings_complete(settings: dict) -> bool:
     return bool(settings.get("subject", "").strip() and settings.get("level", "").strip())
 
 
-st.set_page_config(page_title="Lesmaat AI", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="SocrAItes", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown(
     """
@@ -1336,14 +1338,16 @@ st.markdown(
       div[data-testid="stChatMessage"] { border-radius:16px; }
       .stButton > button { border-radius:10px; border-color:#dbe3f0; }
       .stButton > button[kind="primary"] { background:#315cce; border-color:#315cce; }
-      /* Keep the navigation rail stable and prevent accidental resizing. */
-      section[data-testid="stSidebar"], section[data-testid="stSidebar"] > div:first-child { width: 292px !important; min-width: 292px !important; max-width: 292px !important; }
+      /* Keep the open navigation rail stable without breaking collapsed mode. */
+      section[data-testid="stSidebar"][aria-expanded="true"], section[data-testid="stSidebar"][aria-expanded="true"] > div:first-child { width: 292px !important; min-width: 292px !important; max-width: 292px !important; }
+      section[data-testid="stSidebar"][aria-expanded="false"] { width: 0 !important; min-width: 0 !important; max-width: 0 !important; }
       div[data-testid="stSidebarResizer"], [data-testid="stSidebarResizeHandle"] { display:none !important; width:0 !important; }
       /* Chat and folder rows are one continuous control with a menu at the right. */
       section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] { gap:0 !important; }
       section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div:first-child button { border-radius:10px 0 0 10px !important; border-right-width:0 !important; }
       section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div:last-child button { border-radius:0 10px 10px 0 !important; }
       section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div:first-child button { justify-content:flex-start !important; text-align:left !important; }
+      section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div:first-child button { overflow:hidden !important; white-space:nowrap !important; text-overflow:ellipsis !important; min-width:0 !important; }
       section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div:last-child button { justify-content:center !important; padding-left:0 !important; padding-right:0 !important; }
       [data-testid="stPopover"] button svg, [data-testid="stPopover"] button::after,
       button[aria-haspopup="dialog"] svg, button[aria-haspopup="dialog"]::after,
@@ -1366,7 +1370,7 @@ if sync_local_files(state):
     save_state(state)
 
 with st.sidebar:
-    st.markdown('<div class="brand">✦ Lesmaat AI</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand">✦ SocrAItes</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
     if SUPABASE_ERROR:
         st.error(f"{SUPABASE_ERROR} Controleer de Supabase-tabel, bucket en Secrets.")
     if configured_users():
@@ -1455,7 +1459,7 @@ if page == "chat" and not settings_complete(state.get("settings", {})):
 if page == "settings":
     settings = state.setdefault("settings", default_state()["settings"].copy())
     st.markdown('<div class="eyebrow">Instellingen</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero"><h1>Vertel Lesmaat AI hoe jij lesgeeft.</h1><p>Deze informatie wordt automatisch aan de AI meegegeven, zodat adviezen beter aansluiten op jouw lessen.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><h1>Vertel SocrAItes hoe jij lesgeeft.</h1><p>Deze informatie wordt automatisch aan de AI meegegeven, zodat adviezen beter aansluiten op jouw lessen.</p></div>', unsafe_allow_html=True)
     st.markdown('<div class="note">Vul minimaal je vak en niveau in. Gebruik geen leerlingnamen of andere persoonsgegevens.</div>', unsafe_allow_html=True)
     with st.form("teacher_settings"):
         subject = st.text_input("Welk vak geef je?", value=settings.get("subject", ""), placeholder="Bijvoorbeeld economie")
@@ -1677,7 +1681,6 @@ else:
     st.markdown('<div class="eyebrow">Lesvoorbereiding</div>', unsafe_allow_html=True)
     if not chat["messages"]:
         st.markdown('<div class="hero"><h1>Waar werken we vandaag aan?</h1><p>Vertel welke les je voorbereidt. Voeg methodepagina’s, een PowerPoint of andere context toe wanneer dat helpt.</p></div>', unsafe_allow_html=True)
-        st.markdown('<div class="note">Begin bijvoorbeeld met: <b>“Ik wil een les voorbereiden over fotosynthese voor 3 havo. De methodepagina’s voeg ik hieronder toe.”</b></div>', unsafe_allow_html=True)
     else:
         st.subheader(chat["title"])
         for message in chat["messages"]:
@@ -1730,9 +1733,8 @@ else:
                 saved_path.write_bytes(uploaded.getbuffer())
                 attached_names.append(safe)
                 attached_paths.append(saved_path)
+        new_chat_pending = chat["title"] == "Nieuwe chat"
         chat["messages"].append({"role": "user", "content": prompt, "files": attached_names, "time": now_label()})
-        if chat["title"] == "Nieuwe chat":
-            chat["title"] = " ".join(prompt.split()[:6]) + ("…" if len(prompt.split()) > 6 else "")
         chat["updated"] = now_label()
         library_paths = [
             resolved
@@ -1761,11 +1763,14 @@ else:
                     chat_context,
                 )
                 answer = agent_result.get("answer", "") if isinstance(agent_result, dict) else str(agent_result)
+                chat_title_payload = agent_result.get("chat_title", "") if isinstance(agent_result, dict) else ""
                 returned_context = agent_result.get("context") if isinstance(agent_result, dict) else None
                 document_payload = agent_result.get("document") if isinstance(agent_result, dict) else None
                 action_payload = agent_result.get("action") if isinstance(agent_result, dict) else None
                 validation_payload = agent_result.get("validation") if isinstance(agent_result, dict) else None
                 graph_payload = agent_result.get("graphs") if isinstance(agent_result, dict) else None
+                if new_chat_pending and isinstance(chat_title_payload, str) and chat_title_payload.strip():
+                    chat["title"] = chat_title_payload.strip()[:60]
                 model_roles = agent_result.get("roles") if isinstance(agent_result, dict) else None
                 if isinstance(model_roles, list) and model_roles:
                     process_trace = [

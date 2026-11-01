@@ -1,4 +1,4 @@
-"""Create one hashed Lesmaat AI user record for LESMAAT_USERS_JSON."""
+"""Create one hashed SocrAItes user record for LESMAAT_USERS_JSON."""
 
 import getpass
 import hashlib
