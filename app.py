@@ -341,10 +341,10 @@ def normalize_document_markup(text: str) -> str:
     text = re.sub(r"\\begin\{cases\}|\\end\{cases\}", "", text)
     text = text.replace("\\\\", " ; ")
     replacements = {
-        r"\leq": "<=",
-        r"\geq": ">=",
-        r"\times": "x",
-        r"\cdot": "*",
+        r"\leq": "≤",
+        r"\geq": "≥",
+        r"\times": "×",
+        r"\cdot": "·",
         r"\rightarrow": "->",
         r"\qquad": " ",
         r"\quad": " ",
@@ -353,6 +353,21 @@ def normalize_document_markup(text: str) -> str:
         r"\;": " ",
     }
     for source, replacement in replacements.items():
+        text = text.replace(source, replacement)
+    sqrt_pattern = re.compile(r"\\sqrt\{([^{}]*)\}")
+    while sqrt_pattern.search(text):
+        text = sqrt_pattern.sub(r"√(\1)", text)
+    text = re.sub(r"\\int_", "∫_", text)
+    text = text.replace(r"\infty", "∞").replace(r"\pi", "π").replace(r"\neq", "≠")
+    # Keep generated documents readable even when the model returns Unicode
+    # math symbols that are missing from the selected PDF font.
+    unicode_math_replacements = {
+        "−": "-",
+        "—": "-",
+        "–": "-",
+        "→": "→",
+    }
+    for source, replacement in unicode_math_replacements.items():
         text = text.replace(source, replacement)
     text = re.sub(r"\\int_([^\s]+)\^([^\s]+)", r"integral_\1^\2", text)
     text = text.replace(r"\ ", " ")
@@ -391,13 +406,26 @@ def register_pdf_fonts():
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    candidates = [
+    candidates = []
+    try:
+        from matplotlib.font_manager import findfont
+
+        dejavu_regular = findfont("DejaVu Sans")
+        dejavu_bold = findfont("DejaVu Sans:style=bold")
+        dejavu_italic = findfont("DejaVu Sans:style=italic")
+        dejavu_bold_italic = findfont("DejaVu Sans:style=bold italic")
+        candidates.append(("SocrAItesSans", dejavu_regular, dejavu_bold, dejavu_italic, dejavu_bold_italic))
+    except Exception:
+        pass
+    candidates.extend([
         ("LesmaatSans", "C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\ariali.ttf", "C:\\Windows\\Fonts\\arialbi.ttf"),
         ("LesmaatSans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf"),
-    ]
+    ])
     for family, regular, bold, italic, bold_italic in candidates:
         if all(Path(path).exists() for path in (regular, bold, italic, bold_italic)):
             try:
+                if family in pdfmetrics.getRegisteredFontNames():
+                    return family
                 pdfmetrics.registerFont(TTFont(family, regular))
                 pdfmetrics.registerFont(TTFont(f"{family}-Bold", bold))
                 pdfmetrics.registerFont(TTFont(f"{family}-Italic", italic))
