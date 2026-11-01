@@ -28,6 +28,84 @@ FILES_ROOT = DATA_ROOT / "files"
 STATE_FILE = DATA_ROOT / "state.json"
 AGENT_PROMPT_FILE = APP_ROOT / "agent_prompt.txt"
 BASE_DATA_ROOT = DATA_ROOT
+SUPABASE_BUCKET = "lesmaat-files"
+SUPABASE_ERROR = ""
+
+
+def secret_value(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    try:
+        return str(st.secrets.get(name, "")).strip()
+    except Exception:
+        return ""
+
+
+def supabase_client():
+    """Create the server-only Supabase client when hosting secrets exist."""
+    url = secret_value("SUPABASE_URL")
+    key = secret_value("SUPABASE_SECRET_KEY") or secret_value("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+
+        return create_client(url, key)
+    except Exception:
+        return None
+
+
+def remote_file_path(file_info: dict) -> str:
+    user_part = clean_name(str(globals().get("current_user_id", "local_dev"))).replace(".", "_")
+    folder_part = clean_name(str(file_info.get("folder", "root")))
+    return f"{user_part}/{folder_part}/{clean_name(str(file_info.get('name', 'bestand')))}"
+
+
+def download_remote_files(state: dict, client) -> None:
+    """Restore the user's files from private Supabase Storage to local cache."""
+    if not client:
+        return
+    for file_info in state.get("files", []):
+        local_path = FILES_ROOT / str(file_info.get("folder", "root")) / clean_name(str(file_info.get("name", "bestand")))
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        storage_path = file_info.get("remote_path") or remote_file_path(file_info)
+        try:
+            if not local_path.exists():
+                content = client.storage.from_(SUPABASE_BUCKET).download(storage_path)
+                local_path.write_bytes(content)
+            file_info["path"] = str(local_path)
+            file_info["remote_path"] = storage_path
+        except Exception:
+            continue
+
+
+def upload_state_files(state: dict, client) -> None:
+    """Mirror current local files to the private Supabase bucket."""
+    if not client:
+        return
+    for file_info in state.get("files", []):
+        local_path = resolve_file_path(file_info)
+        if not local_path:
+            continue
+        storage_path = file_info.get("remote_path") or remote_file_path(file_info)
+        try:
+            client.storage.from_(SUPABASE_BUCKET).upload(
+                path=storage_path,
+                file=local_path.read_bytes(),
+                file_options={"cache-control": "3600", "upsert": "true", "content-type": file_mime_type(local_path)},
+            )
+            file_info["remote_path"] = storage_path
+        except Exception:
+            try:
+                client.storage.from_(SUPABASE_BUCKET).update(
+                    path=storage_path,
+                    file=local_path.read_bytes(),
+                    file_options={"cache-control": "3600", "content-type": file_mime_type(local_path)},
+                )
+                file_info["remote_path"] = storage_path
+            except Exception:
+                continue
 
 
 def configured_users() -> dict:
@@ -671,7 +749,7 @@ def ask_agent(
     chat_context: dict | None = None,
 ) -> dict:
     """Ask once for both the visible answer and the updated chat context."""
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = secret_value("OPENAI_API_KEY")
     if not api_key:
         return {"answer": "De API-key is niet gevonden. Stel OPENAI_API_KEY in en start de app opnieuw.", "context": None, "document": None, "action": None, "roles": None, "validation": None, "graphs": None}
     try:
@@ -894,7 +972,7 @@ def update_chat_context(
 ) -> dict:
     """Ask the model for a compact, reusable context record for this chat."""
     context = previous_context or {}
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = secret_value("OPENAI_API_KEY")
     if not api_key:
         return context
     try:
@@ -952,7 +1030,7 @@ def update_chat_context(
 
 def edit_powerpoint(prompt: str, pptx_path: Path, state: dict) -> dict | None:
     """Use the model to create a conservative text-replacement plan for a PPTX."""
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = secret_value("OPENAI_API_KEY")
     if not api_key:
         return None
     try:
@@ -1115,8 +1193,23 @@ def default_state() -> dict:
 
 
 def load_state() -> dict:
+    global SUPABASE_ERROR
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
+    client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
+    if client:
+        try:
+            response = client.table("user_states").select("state").eq("user_id", current_user_id).limit(1).execute()
+            rows = getattr(response, "data", None) or []
+            if rows and isinstance(rows[0].get("state"), dict):
+                STATE_FILE.write_text(json.dumps(rows[0]["state"], ensure_ascii=False, indent=2), encoding="utf-8")
+                download_remote_files(rows[0]["state"], client)
+        except Exception as exc:
+            SUPABASE_ERROR = f"Supabase-opslag kon niet worden geladen ({type(exc).__name__})."
+            try:
+                (DATA_ROOT / "supabase_error.log").write_text(traceback.format_exc(), encoding="utf-8")
+            except OSError:
+                pass
     if STATE_FILE.exists():
         try:
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -1138,8 +1231,20 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
+    global SUPABASE_ERROR
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
+    if client:
+        try:
+            upload_state_files(state, client)
+            client.table("user_states").upsert({"user_id": current_user_id, "state": state}).execute()
+        except Exception as exc:
+            SUPABASE_ERROR = f"Supabase-opslag kon niet worden opgeslagen ({type(exc).__name__})."
+            try:
+                (DATA_ROOT / "supabase_error.log").write_text(traceback.format_exc(), encoding="utf-8")
+            except OSError:
+                pass
 
 
 def sync_local_files(state: dict) -> bool:
@@ -1233,6 +1338,8 @@ if sync_local_files(state):
 
 with st.sidebar:
     st.markdown('<div class="brand">✦ Lesmaat AI</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
+    if SUPABASE_ERROR:
+        st.error(f"{SUPABASE_ERROR} Controleer de Supabase-tabel, bucket en Secrets.")
     if configured_users():
         st.caption(f"Ingelogd als {current_user_id}")
         if st.button("Uitloggen", use_container_width=True):

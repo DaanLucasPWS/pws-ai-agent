@@ -13,6 +13,7 @@ Deze versie bevat:
 - aanpasbare agentinstructies in `agent_prompt.txt`.
 - actuele informatie via de ingebouwde webzoekfunctie;
 - een eerste PowerPoint-bewerkingsmodus die tekstwijzigingen als nieuwe downloadbare presentatie opslaat.
+- permanente gebruikersopslag via Supabase wanneer `SUPABASE_URL` en `SUPABASE_SECRET_KEY` zijn ingesteld;
 
 ## Starten
 
@@ -45,3 +46,5 @@ Zet de uitgegeven JSON-record daarna in het servergeheim `LESMAAT_USERS_JSON`. C
 - permanente opslag instellen voor `app_data/users/`, of een externe opslag/database gebruiken;
 - testen met minstens twee accounts of chats en bestanden volledig gescheiden blijven;
 - controleren dat Word- en PDF-bestanden met grafieken correct worden gegenereerd.
+
+De permanente opslag gebruikt de tabel `user_states` en de private Storage-bucket `lesmaat-files`. Maak deze aan met het SQL-script dat tijdens de hostinginrichting is besproken. Zonder geldige Supabase Secrets blijft de lokale ontwikkelmodus actief.
