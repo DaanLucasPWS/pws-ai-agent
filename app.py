@@ -228,6 +228,20 @@ def resolve_file_path(file_info: dict) -> Path | None:
     for candidate in candidates:
         if candidate.exists() and candidate.is_file():
             return candidate
+    # A hosted app may have lost its local cache after a restart. Restore the
+    # requested file lazily from private Supabase Storage when possible.
+    client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
+    if client and name:
+        restored_path = FILES_ROOT / str(folder) / clean_name(str(name))
+        storage_path = file_info.get("remote_path") or remote_file_path(file_info)
+        try:
+            restored_path.parent.mkdir(parents=True, exist_ok=True)
+            restored_path.write_bytes(client.storage.from_(SUPABASE_BUCKET).download(storage_path))
+            file_info["path"] = str(restored_path)
+            file_info["remote_path"] = storage_path
+            return restored_path
+        except Exception:
+            return None
     return None
 
 
@@ -1450,7 +1464,7 @@ with st.sidebar:
     if st.button("⚙ Instellingen", use_container_width=True):
         st.session_state["page"] = "settings"
         st.rerun()
-    st.caption("Je bestanden blijven in deze lokale app-map. Voeg later hosting en beveiligde opslag toe.")
+    st.caption("Je bestanden worden per account opgeslagen in de beveiligde bibliotheek.")
 
 page = st.session_state.get("page", "chat")
 if page == "chat" and not settings_complete(state.get("settings", {})):
