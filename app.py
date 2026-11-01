@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import traceback
+import unicodedata
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -62,9 +63,17 @@ def supabase_client():
 
 
 def remote_file_path(file_info: dict) -> str:
-    user_part = clean_name(str(globals().get("current_user_id", "local_dev"))).replace(".", "_")
-    folder_part = clean_name(str(file_info.get("folder", "root")))
-    return f"{user_part}/{folder_part}/{clean_name(str(file_info.get('name', 'bestand')))}"
+    user_part = storage_safe_component(str(globals().get("current_user_id", "local_dev")))
+    folder_part = storage_safe_component(str(file_info.get("folder", "root")))
+    name_part = storage_safe_component(str(file_info.get("name", "bestand")))
+    return f"{user_part}/{folder_part}/{name_part}"
+
+
+def storage_safe_component(value: str) -> str:
+    """Use an ASCII-safe object key while preserving the display filename."""
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", normalized).strip("._")
+    return safe or "bestand"
 
 
 def download_remote_files(state: dict, client) -> None:
