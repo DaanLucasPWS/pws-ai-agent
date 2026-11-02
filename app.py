@@ -715,6 +715,47 @@ def create_xlsx_from_text(title: str, content: str, state: dict) -> dict | None:
         return None
 
 
+def create_pptx_from_text(title: str, content: str, state: dict, graph_specs: list[dict] | None = None) -> dict | None:
+    """Create a simple editable PowerPoint from the document payload."""
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        presentation = Presentation()
+        raw_content = str(content or "").strip()
+        sections = re.split(r"(?im)(?=^(?:dia|slide)\s*\d+\s*:?)", raw_content)
+        sections = [section.strip() for section in sections if section.strip()]
+        if not sections:
+            sections = [raw_content or ""]
+        for index, section in enumerate(sections[:12], start=1):
+            lines = section.splitlines()
+            heading = lines[0].strip("# :") if lines and lines[0].strip() else (title if index == 1 else f"Dia {index}")
+            if re.match(r"(?i)^(?:dia|slide)\s*\d+", heading):
+                heading = re.sub(r"(?i)^(?:dia|slide)\s*\d+\s*:?[ \t]*", "", heading).strip() or f"Dia {index}"
+            body = "\n".join(lines[1:]).strip() or section
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            title_box = slide.shapes.add_textbox(Inches(0.7), Inches(0.45), Inches(12), Inches(0.75))
+            set_pptx_markdown_text(title_box.text_frame, heading, Pt(28))
+            for paragraph in title_box.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    run.font.bold = True
+            body_box = slide.shapes.add_textbox(Inches(0.9), Inches(1.45), Inches(11.5), Inches(5.4))
+            body_box.text_frame.word_wrap = True
+            set_pptx_markdown_text(body_box.text_frame, body, Pt(20))
+        output_name = f"{clean_name(title or 'Presentatie')}_{datetime.now().strftime('%H%M%S')}.pptx"
+        temporary_path = Path(tempfile.gettempdir()) / output_name
+        presentation.save(str(temporary_path))
+        generated = store_file_bytes(state, "root", output_name, temporary_path.read_bytes())
+        temporary_path.unlink(missing_ok=True)
+        return generated
+    except Exception:
+        try:
+            (DATA_ROOT / "pptx_create_error.log").write_text(traceback.format_exc(), encoding="utf-8")
+        except OSError:
+            pass
+        return None
+
+
 def requested_output_type(prompt: str, history: list[dict] | None = None, chat_context: dict | None = None) -> str | None:
     text = prompt.lower()
     if requests_pdf_output(prompt):
@@ -2025,7 +2066,7 @@ else:
                     action_output_type = action_payload.get("output_type")
                     action_user_requested = bool(action_payload.get("user_requested"))
                     action_target_files = [str(name).strip() for name in action_payload.get("target_files", []) if str(name).strip()]
-                    if action_kind == "create_document" and action_output_type in {"pdf", "docx", "xlsx"}:
+                    if action_kind == "create_document" and action_output_type in {"pdf", "docx", "xlsx", "pptx"}:
                         output_type = action_output_type
                     elif action_kind == "answer_only":
                         output_type = None
@@ -2080,6 +2121,8 @@ else:
                     generated_file = create_pdf_from_text((document_payload or {}).get("title") or "Leshand-out", document_content, state, graph_payload)
                 elif output_type == "docx":
                     generated_file = create_docx_from_text((document_payload or {}).get("title") or "Lesdocument", document_content, state, graph_payload)
+                elif output_type == "pptx":
+                    generated_file = create_pptx_from_text((document_payload or {}).get("title") or "Presentatie", document_content, state, graph_payload)
                 else:
                     generated_file = create_xlsx_from_text((document_payload or {}).get("title") or "Lesmateriaal", document_content, state)
             if generated_file:
