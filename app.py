@@ -96,7 +96,7 @@ def download_remote_files(state: dict, client) -> None:
             continue
 
 
-def upload_state_files(state: dict, client) -> None:
+def upload_state_files(state: dict, client, progress_callback=None) -> None:
     """Mirror current local files to the private Supabase bucket."""
     global SUPABASE_ERROR
     if not client:
@@ -146,17 +146,20 @@ def upload_state_files(state: dict, client) -> None:
 
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(pending)))) as executor:
         results = list(executor.map(upload_one, pending))
-    for file_info, local_path, storage_path, local_size, local_modified, error in results:
+    total_uploads = len(results)
+    for index, (file_info, local_path, storage_path, local_size, local_modified, error) in enumerate(results, start=1):
         if error:
             SUPABASE_ERROR = f"Bestand '{local_path.name}' kon niet naar Supabase worden geüpload."
             try:
                 (DATA_ROOT / "supabase_error.log").write_text(error, encoding="utf-8")
             except OSError:
                 pass
-            continue
-        file_info["remote_path"] = storage_path
-        file_info["remote_size"] = local_size
-        file_info["remote_modified"] = local_modified
+        else:
+            file_info["remote_path"] = storage_path
+            file_info["remote_size"] = local_size
+            file_info["remote_modified"] = local_modified
+        if progress_callback:
+            progress_callback(index, total_uploads, local_path.name, error is None)
 
 
 def delete_remote_file(file_info: dict, storage_path: str | None = None) -> None:
@@ -1518,14 +1521,14 @@ def load_state() -> dict:
     return state
 
 
-def save_state(state: dict) -> None:
+def save_state(state: dict, progress_callback=None) -> None:
     global SUPABASE_ERROR
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
     if client:
         try:
-            upload_state_files(state, client)
+            upload_state_files(state, client, progress_callback=progress_callback)
             client.table("user_states").upsert({"user_id": current_user_id, "state": state}).execute()
         except Exception as exc:
             SUPABASE_ERROR = f"Supabase-opslag kon niet worden opgeslagen ({type(exc).__name__})."
@@ -1755,7 +1758,18 @@ elif page == "files":
                     safe = clean_name(uploaded.name)
                     (target / safe).write_bytes(uploaded.getbuffer())
                     state["files"].append({"id": str(uuid.uuid4()), "name": safe, "folder": target_folder, "path": str(target / safe), "size": uploaded.size, "added": now_label()})
-                save_state(state)
+                upload_progress = st.progress(0, text="Bestanden lokaal opgeslagen; upload naar server wordt gestart…")
+
+                def report_upload_progress(done, total, filename, success):
+                    fraction = done / total if total else 1.0
+                    status = f"Upload {done}/{total}: {filename}"
+                    if not success:
+                        status += " (mislukt)"
+                    upload_progress.progress(fraction, text=status)
+
+                with st.spinner("Bestanden naar de server uploaden…"):
+                    save_state(state, progress_callback=report_upload_progress)
+                upload_progress.progress(1.0, text="Upload voltooid")
                 st.rerun()
     st.markdown('<div class="note">Tip: upload alleen materiaal dat je voor de lesvoorbereiding nodig hebt. Gebruik geen leerlinggegevens.</div>', unsafe_allow_html=True)
     st.write("")
