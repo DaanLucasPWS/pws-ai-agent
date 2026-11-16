@@ -1626,8 +1626,11 @@ if current_user_id != "local_dev":
     FILES_ROOT = DATA_ROOT / "files"
     STATE_FILE = DATA_ROOT / "state.json"
 state = load_state()
-if sync_local_files(state):
-    save_state(state)
+local_sync_at = st.session_state.get("local_sync_at", 0.0)
+if time.monotonic() - local_sync_at >= 30:
+    st.session_state["local_sync_at"] = time.monotonic()
+    if sync_local_files(state):
+        save_state(state)
 
 with st.sidebar:
     st.markdown('<div class="brand">✦ SocrAItes</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
