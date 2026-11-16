@@ -101,6 +101,7 @@ def upload_state_files(state: dict, client) -> None:
     global SUPABASE_ERROR
     if not client:
         return
+    pending: list[tuple[dict, Path, str, int, float, bytes]] = []
     for file_info in state.get("files", []):
         local_path = resolve_file_path(file_info)
         if not local_path:
@@ -115,34 +116,47 @@ def upload_state_files(state: dict, client) -> None:
             continue
         storage_path = file_info.get("remote_path") or remote_file_path(file_info)
         try:
+            pending.append((file_info, local_path, storage_path, local_size, local_modified, local_path.read_bytes()))
+        except OSError:
+            continue
+
+    def upload_one(item: tuple[dict, Path, str, int, float, bytes]) -> tuple[dict, Path, str, int, float, str | None]:
+        file_info, local_path, storage_path, local_size, local_modified, content = item
+        try:
             client.storage.from_(SUPABASE_BUCKET).upload(
                 path=storage_path,
-                file=local_path.read_bytes(),
+                file=content,
                 file_options={"cache-control": "3600", "upsert": "true", "content-type": file_mime_type(local_path)},
             )
-            file_info["remote_path"] = storage_path
-            file_info["remote_size"] = local_size
-            file_info["remote_modified"] = local_modified
+            return file_info, local_path, storage_path, local_size, local_modified, None
         except Exception as upload_exc:
             try:
                 client.storage.from_(SUPABASE_BUCKET).update(
                     path=storage_path,
-                    file=local_path.read_bytes(),
+                    file=content,
                     file_options={"cache-control": "3600", "content-type": file_mime_type(local_path)},
                 )
-                file_info["remote_path"] = storage_path
-                file_info["remote_size"] = local_size
-                file_info["remote_modified"] = local_modified
+                return file_info, local_path, storage_path, local_size, local_modified, None
             except Exception as update_exc:
-                SUPABASE_ERROR = f"Bestand '{local_path.name}' kon niet naar Supabase worden geüpload ({type(update_exc).__name__})."
-                try:
-                    (DATA_ROOT / "supabase_error.log").write_text(
-                        f"Uploadfout:\n{upload_exc}\n\nUpdatefout:\n{traceback.format_exc()}",
-                        encoding="utf-8",
-                    )
-                except OSError:
-                    pass
-                continue
+                return file_info, local_path, storage_path, local_size, local_modified, f"{upload_exc}\n\nUpdatefout:\n{update_exc}"
+
+    # Parallel uploads reduce the wait when a teacher selects several files.
+    # A single large file still depends mainly on the available upload speed.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(pending)))) as executor:
+        results = list(executor.map(upload_one, pending))
+    for file_info, local_path, storage_path, local_size, local_modified, error in results:
+        if error:
+            SUPABASE_ERROR = f"Bestand '{local_path.name}' kon niet naar Supabase worden geüpload."
+            try:
+                (DATA_ROOT / "supabase_error.log").write_text(error, encoding="utf-8")
+            except OSError:
+                pass
+            continue
+        file_info["remote_path"] = storage_path
+        file_info["remote_size"] = local_size
+        file_info["remote_modified"] = local_modified
 
 
 def delete_remote_file(file_info: dict, storage_path: str | None = None) -> None:
