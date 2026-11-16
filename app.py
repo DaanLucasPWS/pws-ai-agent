@@ -1521,14 +1521,15 @@ def load_state() -> dict:
     return state
 
 
-def save_state(state: dict, progress_callback=None) -> None:
+def save_state(state: dict, progress_callback=None, sync_files: bool = False) -> None:
     global SUPABASE_ERROR
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     client = supabase_client() if globals().get("current_user_id") != "local_dev" else None
     if client:
         try:
-            upload_state_files(state, client, progress_callback=progress_callback)
+            if sync_files:
+                upload_state_files(state, client, progress_callback=progress_callback)
             client.table("user_states").upsert({"user_id": current_user_id, "state": state}).execute()
         except Exception as exc:
             SUPABASE_ERROR = f"Supabase-opslag kon niet worden opgeslagen ({type(exc).__name__})."
@@ -1630,7 +1631,7 @@ local_sync_at = st.session_state.get("local_sync_at", 0.0)
 if time.monotonic() - local_sync_at >= 30:
     st.session_state["local_sync_at"] = time.monotonic()
     if sync_local_files(state):
-        save_state(state)
+        save_state(state, sync_files=True)
 
 with st.sidebar:
     st.markdown('<div class="brand">✦ SocrAItes</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
@@ -1771,7 +1772,7 @@ elif page == "files":
                     upload_progress.progress(fraction, text=status)
 
                 with st.spinner("Bestanden naar de server uploaden…"):
-                    save_state(state, progress_callback=report_upload_progress)
+                    save_state(state, progress_callback=report_upload_progress, sync_files=True)
                 upload_progress.progress(1.0, text="Upload voltooid")
                 st.rerun()
     st.markdown('<div class="note">Tip: upload alleen materiaal dat je voor de lesvoorbereiding nodig hebt. Gebruik geen leerlinggegevens.</div>', unsafe_allow_html=True)
@@ -2172,5 +2173,5 @@ else:
         if generated_file:
             assistant_message["generated_file"] = generated_file["id"]
         chat["messages"].append(assistant_message)
-        save_state(state)
+        save_state(state, sync_files=bool(generated_file))
         st.rerun()
