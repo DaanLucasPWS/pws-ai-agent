@@ -219,7 +219,7 @@ def authenticate_user() -> str | None:
         return "local_dev"
     if st.session_state.get("authenticated_user") in users:
         return st.session_state["authenticated_user"]
-    st.markdown('<div class="hero"><h1>Inloggen bij SocrAItes</h1><p>Gebruik je persoonlijke docentaccount.</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero"><h1>Inloggen bij <span class="socrates-word">SocrAItes</span></h1><p>Gebruik je persoonlijke docentaccount.</p></div>', unsafe_allow_html=True)
     with st.form("login_form"):
         username = st.text_input("Gebruikersnaam")
         password = st.text_input("Wachtwoord", type="password")
@@ -1588,8 +1588,9 @@ st.markdown(
       .stApp { background: #f7f9fc; color: var(--ink); }
       [data-testid="stSidebar"] { background: #ffffff; border-right: 1px solid #e8edf5; }
       [data-testid="stSidebar"] > div:first-child { padding-top: 1.4rem; }
-      .brand { font-family:"Trebuchet MS","Segoe UI",sans-serif; font-size:1.35rem; font-weight:750; letter-spacing:-.01em; color:var(--ink); margin-bottom:.15rem; }
-      .brand-ai { font-family:Arial,"Segoe UI",sans-serif; font-weight:800; letter-spacing:.02em; }
+      .brand, .socrates-word { font-family:Georgia,"Times New Roman",serif; font-weight:700; letter-spacing:.01em; }
+      .brand { font-size:1.35rem; color:var(--ink); margin-bottom:.15rem; }
+      .brand-ai { font-family:inherit; font-weight:inherit; letter-spacing:inherit; }
       .tagline { color:var(--muted); font-size:.86rem; margin-bottom:1.2rem; }
       .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.12em; font-size:.72rem; font-weight:750; }
       .hero h1 { font-size: clamp(2rem, 4vw, 3.2rem); line-height:1.05; letter-spacing:-.04em; margin:.25rem 0 .7rem; }
