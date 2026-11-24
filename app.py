@@ -1588,7 +1588,8 @@ st.markdown(
       .stApp { background: #f7f9fc; color: var(--ink); }
       [data-testid="stSidebar"] { background: #ffffff; border-right: 1px solid #e8edf5; }
       [data-testid="stSidebar"] > div:first-child { padding-top: 1.4rem; }
-      .brand, .socrates-word, .login-title { font-family:Georgia,"Times New Roman",serif; font-weight:700; letter-spacing:.01em; }
+      .brand, .socrates-word { font-family:Georgia,"Times New Roman",serif; font-weight:700; letter-spacing:.01em; }
+      .hero h1.login-title { font-family:Georgia,"Times New Roman",serif; font-weight:700; letter-spacing:.01em; }
       .brand { font-size:1.35rem; color:var(--ink); margin-bottom:.15rem; }
       .brand-ai { font-family:inherit; font-weight:inherit; letter-spacing:inherit; }
       .tagline { color:var(--muted); font-size:.86rem; margin-bottom:1.2rem; }
