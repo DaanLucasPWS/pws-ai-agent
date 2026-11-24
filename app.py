@@ -1588,7 +1588,8 @@ st.markdown(
       .stApp { background: #f7f9fc; color: var(--ink); }
       [data-testid="stSidebar"] { background: #ffffff; border-right: 1px solid #e8edf5; }
       [data-testid="stSidebar"] > div:first-child { padding-top: 1.4rem; }
-      .brand { font-size: 1.35rem; font-weight: 750; letter-spacing:-.02em; color:var(--ink); margin-bottom:.15rem; }
+      .brand { font-family:"Trebuchet MS","Segoe UI",sans-serif; font-size:1.35rem; font-weight:750; letter-spacing:-.01em; color:var(--ink); margin-bottom:.15rem; }
+      .brand-ai { font-family:Arial,"Segoe UI",sans-serif; font-weight:800; letter-spacing:.02em; }
       .tagline { color:var(--muted); font-size:.86rem; margin-bottom:1.2rem; }
       .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.12em; font-size:.72rem; font-weight:750; }
       .hero h1 { font-size: clamp(2rem, 4vw, 3.2rem); line-height:1.05; letter-spacing:-.04em; margin:.25rem 0 .7rem; }
@@ -1634,7 +1635,7 @@ if time.monotonic() - local_sync_at >= 30:
         save_state(state, sync_files=True)
 
 with st.sidebar:
-    st.markdown('<div class="brand">✦ SocrAItes</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand">✦ Socr<span class="brand-ai">AI</span>tes</div><div class="tagline">Rust in je lesvoorbereiding.</div>', unsafe_allow_html=True)
     if SUPABASE_ERROR:
         st.error(f"{SUPABASE_ERROR} Controleer de Supabase-tabel, bucket en Secrets.")
     if configured_users():
